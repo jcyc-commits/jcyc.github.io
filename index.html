@@ -70,15 +70,38 @@
     const keys = new Set();
 
     const player = {
-      width: 40,
-      height: 24,
-      x: (canvas.width - 40) / 2,
-      y: canvas.height - 48,
+      width: 32,
+      height: 32,
+      x: (canvas.width - 32) / 2,
+      y: canvas.height - 50,
       speed: 360,
       lives: 3,
       invulnerableUntil: 0,
       nextShotAt: 0
     };
+
+    // Pixel-perfect recreation of the supplied yellow upside-down heart ship.
+    // Each 1 is a solid square pixel, so the sprite stays sharp when drawn.
+    const playerSprite = [
+      "0000001111000000",
+      "0000001111000000",
+      "0000111111110000",
+      "0000111111110000",
+      "0011111111111100",
+      "0011111111111100",
+      "1111111111111111",
+      "1111111111111111",
+      "1111111111111111",
+      "1111111111111111",
+      "1111111111111111",
+      "1111111111111111",
+      "1111111001111111",
+      "1111111001111111",
+      "0111110000111110",
+      "0011000000001100"
+    ];
+    const playerPixelSize = 2;
+    const playerColor = "#ffff00";
 
     const invaderSprites = {
       squid: [
@@ -120,11 +143,11 @@
     const invaders = {
       columns: 11,
       rows: [
-        { sprite: "squid", color: "#ff4040" },
-        { sprite: "crab", color: "#f5f5f5" },
-        { sprite: "crab", color: "#f5f5f5" },
-        { sprite: "octopus", color: "#39ff14" },
-        { sprite: "octopus", color: "#39ff14" }
+        { sprite: "squid", color: "#ffff00" }, // yellow
+        { sprite: "crab", color: "#ff69b4" },  // pink
+        { sprite: "crab", color: "#b266ff" },  // purple
+        { sprite: "octopus", color: "#ffffff" }, // white
+        { sprite: "octopus", color: "#ff69b4" } // pink
       ],
       x: 0,
       y: 64,
@@ -145,32 +168,24 @@
       }
     });
 
-    const barrierPixels = [
-      "0000111111000000",
-      "0001111111100000",
-      "0011111111110000",
-      "0111111111111000",
-      "1111111111111100",
-      "1111111111111100",
-      "1111111111111100",
-      "1111111111111100",
-      "1111000000111100",
-      "1110000000011100",
-      "1100000000001100",
-      "1000000000000100"
-    ];
-    const barrierPixelSize = 4;
-    const barrierWidth = barrierPixels[0].length * barrierPixelSize;
+    // Low, wide shields: 30 px high by 100 px wide (3:10 ratio).
+    const barrierWidth = 100;
+    const barrierHeight = 20;
+    const barrierColor = "#247a32";
     const barrierGap = (canvas.width - 4 * barrierWidth) / 5;
     const barriers = Array.from({ length: 4 }, (_, index) => ({
       x: barrierGap + index * (barrierWidth + barrierGap),
-      y: 448
+      y: 448,
+      width: barrierWidth,
+      height: barrierHeight
     }));
 
     const playerBullets = [];
     const enemyBullets = [];
     const maxEnemyBullets = 5;
     const playerBulletSpeed = 520;
+    const maxPlayerBullets = 6;
+    const playerShotCooldown = 180; // milliseconds between shots while holding Space
     const enemyBulletSpeed = 230;
     let gameState = "playing";
     let currentTime = 0;
@@ -214,17 +229,19 @@
         return;
       }
 
-      const centerX = player.x + player.width / 2;
-      const baseY = player.y + player.height;
-
-      ctx.fillStyle = "#39ff14";
-      ctx.beginPath();
-      ctx.moveTo(centerX, player.y);
-      ctx.lineTo(player.x + player.width, baseY);
-      ctx.lineTo(centerX, baseY - 7);
-      ctx.lineTo(player.x, baseY);
-      ctx.closePath();
-      ctx.fill();
+      ctx.fillStyle = playerColor;
+      playerSprite.forEach((pixelRow, pixelY) => {
+        for (let pixelX = 0; pixelX < pixelRow.length; pixelX += 1) {
+          if (pixelRow[pixelX] === "1") {
+            ctx.fillRect(
+              Math.round(player.x + pixelX * playerPixelSize),
+              Math.round(player.y + pixelY * playerPixelSize),
+              playerPixelSize,
+              playerPixelSize
+            );
+          }
+        }
+      });
     }
 
     function drawInvaders() {
@@ -256,25 +273,14 @@
     }
 
     function drawBarriers() {
-      ctx.fillStyle = "#39ff14";
+      ctx.fillStyle = barrierColor;
       barriers.forEach((barrier) => {
-        barrierPixels.forEach((pixelRow, row) => {
-          for (let column = 0; column < pixelRow.length; column += 1) {
-            if (pixelRow[column] === "1") {
-              ctx.fillRect(
-                barrier.x + column * barrierPixelSize,
-                barrier.y + row * barrierPixelSize,
-                barrierPixelSize,
-                barrierPixelSize
-              );
-            }
-          }
-        });
+        ctx.fillRect(barrier.x, barrier.y, barrier.width, barrier.height);
       });
     }
 
     function drawBullets() {
-      ctx.fillStyle = "#ffffff";
+      ctx.fillStyle = playerColor;
       playerBullets.forEach((bullet) => {
         ctx.fillRect(bullet.x, bullet.y, bullet.width, bullet.height);
       });
@@ -334,33 +340,15 @@
       };
     }
 
-    function enemyBulletHitsBarrier(bullet) {
-      for (const barrier of barriers) {
-        for (let row = 0; row < barrierPixels.length; row += 1) {
-          for (let column = 0; column < barrierPixels[row].length; column += 1) {
-            if (barrierPixels[row][column] !== "1") {
-              continue;
-            }
-
-            const pixel = {
-              x: barrier.x + column * barrierPixelSize,
-              y: barrier.y + row * barrierPixelSize,
-              width: barrierPixelSize,
-              height: barrierPixelSize
-            };
-            if (rectanglesOverlap(bullet, pixel)) {
-              return true;
-            }
-          }
-        }
-      }
-      return false;
+    // Both enemy and player projectiles are stopped by a shield.
+    function bulletHitsBarrier(bullet) {
+      return barriers.some((barrier) => rectanglesOverlap(bullet, barrier));
     }
 
     function firePlayerBullet(time) {
       if (
         keys.has("Space") &&
-        playerBullets.length === 0 &&
+        playerBullets.length < maxPlayerBullets &&
         time >= player.nextShotAt
       ) {
         playerBullets.push({
@@ -370,7 +358,7 @@
           height: 12,
           speed: playerBulletSpeed
         });
-        player.nextShotAt = time + 300;
+        player.nextShotAt = time + playerShotCooldown;
       }
     }
 
@@ -410,6 +398,11 @@
         const bullet = playerBullets[index];
         bullet.y -= bullet.speed * deltaTime;
 
+        if (bulletHitsBarrier(bullet)) {
+          playerBullets.splice(index, 1);
+          continue;
+        }
+
         const hitEnemy = enemies.find((enemy) =>
           enemy.alive && rectanglesOverlap(bullet, getEnemyBounds(enemy))
         );
@@ -430,7 +423,7 @@
         const bullet = enemyBullets[index];
         bullet.y += bullet.speed * deltaTime;
 
-        if (enemyBulletHitsBarrier(bullet)) {
+        if (bulletHitsBarrier(bullet)) {
           enemyBullets.splice(index, 1);
         } else if (rectanglesOverlap(bullet, player)) {
           enemyBullets.splice(index, 1);
